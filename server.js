@@ -8,7 +8,7 @@ const { Server } = require('socket.io');
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000; // Use process.env.PORT for deployment flexibility
-const MAX_PLAYERS = 2;
+const MAX_PLAYERS = 10;
 const players = {}; // Server-side representation of all players
 
 // Serve static files from the 'public' directory
