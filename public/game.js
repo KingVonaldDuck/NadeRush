@@ -23,6 +23,17 @@ const camera = {
     y: 0
 };
 
+
+
+
+
+
+
+
+
+
+
+
 // Store all other players received from the server
 const remotePlayers = {}; // Dictionary to hold other players by their ID
 
@@ -78,6 +89,16 @@ socket.on('playerDisconnected', (playerId) => {
     delete remotePlayers[playerId];
 });
 
+
+
+
+
+
+
+
+
+
+
 // Helper function to get a random color for other players
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
@@ -103,6 +124,13 @@ const keys = {};
 let lastSentPlayerX = player.x;
 let lastSentPlayerY = player.y;
 
+
+
+
+
+
+
+
 window.addEventListener("keydown", (e) => {
     keys[e.key.toLowerCase()] = true;
     console.log("KeyDown:", e.key, "Keys currently pressed:", JSON.stringify(keys));
@@ -118,6 +146,24 @@ function updateCamera() {
     camera.x = player.x - canvas.width / 2;
     camera.y = player.y - canvas.height / 2;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // --- Game Logic ---
 function update() {
@@ -156,6 +202,28 @@ function update() {
         console.log("Emitting playerMove:", player.x, player.y);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // --- Drawing ---
 function drawPlayer(p) {
@@ -207,10 +275,33 @@ function clear() {
     }
 }
 
+
+
+
+
+
+function drawPlayerCount() {
+    let playerCount = Object.keys(remotePlayers).length + 1;
+    ctx.fillStyle = 'white'
+    ctx.font = '12px Courier New';
+    ctx.fillText(`Players: ${playerCount}`, 45, 20);
+
+}
+
+
+
+
+
+
+
+
+
+
 // --- Main Loop ---
 function loop() {
     update();
     clear();
+    drawPlayerCount();
 
     if (player.id) {
         drawPlayer(player);
