@@ -128,7 +128,7 @@ function drawPlayer(p) {
     ctx.fill();
 
     ctx.fillStyle = 'white';
-    ctx.font = '12px Courier New';
+    ctx.font = '14px Consolas';
     ctx.textAlign = 'center';
     ctx.fillText(p.username || p.id.substring(0, 4), p.x - camera.x, p.y - camera.y - p.size - 5);
 }
@@ -140,7 +140,7 @@ function clear() {
     ctx.fillStyle = "#444";
     ctx.fillRect(0 - camera.x, 0 - camera.y, worldSize, worldSize);
 
-    const gridSize = 40;
+    const gridSize = 50;
     ctx.strokeStyle = "#555";
     ctx.lineWidth = 1;
 
@@ -162,7 +162,7 @@ function clear() {
 function drawPlayerCount() {
     const playerCount = Object.keys(remotePlayers).length + 1;
     ctx.fillStyle = 'white';
-    ctx.font = '12px Courier New';
+    ctx.font = '14px Consolas';
     ctx.fillText(`Players: ${playerCount}`, 45, 20);
 }
 
