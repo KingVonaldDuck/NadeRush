@@ -4,7 +4,13 @@
   <meta charset="UTF-8" />
   <title>BombsRoyal</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #222; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #222;
+      font-family: Consolas, 'Courier New', Courier, monospace;
+      font-weight: bold;
+    }
 
     #homeScreen {
       position: absolute;
@@ -15,8 +21,13 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 20px;
+      gap: 50px;
       z-index: 10;
+    }
+
+    #homeScreen input,
+    #homeScreen button {
+      font-family: Consolas, 'Courier New', Courier, monospace;
     }
 
     #homeScreen input {
@@ -40,7 +51,15 @@
     }
 
     #homeScreen button:hover {
-      background-color: #777;
+      background-color: #000000;
+    }
+
+    #logo {
+      width: 300px;
+      max-width: 80%;
+      height: auto;
+      user-select: none;
+      pointer-events: none;
     }
 
     canvas {
@@ -51,7 +70,8 @@
 </head>
 <body>
   <div id="homeScreen">
-    <input type="text" id="usernameInput" placeholder="Username" maxlength="20" />
+    <img id="logo" src="BombsRoyal-T.png" alt="BombsRoyal Logo" />
+    <input type="text" id="usernameInput" placeholder="Set Your Nickname" maxlength="20" />
     <button id="playBtn">Play</button>
   </div>
 
