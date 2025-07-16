@@ -5,10 +5,56 @@
   <title>BombsRoyal</title>
   <style>
     body { margin: 0; overflow: hidden; background: #222; }
-    canvas { display: block; margin: 0 auto; background: #333; }
+
+    #homeScreen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: #222;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      z-index: 10;
+    }
+
+    #homeScreen input {
+      padding: 10px;
+      font-size: 18px;
+      width: 250px;
+      border-radius: 8px;
+      border: none;
+      outline: 3px solid rgb(196, 196, 196);
+    }
+
+    #homeScreen button {
+      padding: 12px 30px;
+      font-size: 20px;
+      border: none;
+      border-radius: 8px;
+      background-color: #555;
+      color: white;
+      cursor: pointer;
+      outline: 3px solid rgb(124, 124, 124);
+    }
+
+    #homeScreen button:hover {
+      background-color: #777;
+    }
+
+    canvas {
+      display: none;
+      background: #333;
+    }
   </style>
 </head>
 <body>
+  <div id="homeScreen">
+    <input type="text" id="usernameInput" placeholder="Username" maxlength="20" />
+    <button id="playBtn">Play</button>
+  </div>
+
   <canvas id="gameCanvas" width="800" height="600"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
