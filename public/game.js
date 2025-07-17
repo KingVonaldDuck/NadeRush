@@ -13,7 +13,7 @@ const player = {
     x: 0,
     y: 0,
     size: 20,
-    speed: 4,
+    speed: 5,
     dx: 0,
     dy: 0,
     color: "white",
@@ -163,7 +163,7 @@ function drawPlayerCount() {
     const playerCount = Object.keys(remotePlayers).length + 1;
     ctx.fillStyle = 'white';
     ctx.font = '16px Consolas';
-    ctx.fillText(`Players: ${playerCount}`, 50, 20);
+    ctx.fillText(`Players: ${playerCount}`, 55, 20);
 }
 
 function loop() {
