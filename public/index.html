@@ -32,30 +32,30 @@
     }
 
     #homeScreen input {
-      padding: 12px 20px;
-      font-size: 20px;
+      padding: 12px 8px;
+      font-size:16px;
       width: 350px;
       border-radius: 4px;
       border: none;
-      outline: 1px solid rgb(255, 255, 255);
+      outline: 1px solid rgb(0, 0, 0);
       background-color: rgba(0, 0, 0, 0.6);
       color: white;
     }
 
     #homeScreen button {
       padding: 15px 30px;
+      width: 350px;
       font-size: 30px;
       border: none;
       border-radius: 16px;
       background: linear-gradient(145deg, #046419, #034913);
       color: white;
       cursor: pointer;
-      outline: 1px solid rgb(255, 255, 255);
 
   /* 3D shadow effect */
       box-shadow:
         0 6px 0 #034913,         /* thick base shadow */
-        0 10px 15px rgba(0,0,0,0.5);  /* soft drop shadow */
+        0 10px 15px rgba(0, 0, 0, 0.5);  /* soft drop shadow */
       transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -75,7 +75,7 @@
     }
 
     #logo {
-      width: 400px;
+      width: 366px;
       max-width: 80%;
       height: auto;
       user-select: none;
@@ -92,7 +92,7 @@
   <div id="homeScreen">
     <img id="logo" src="NadeRush-T.png" alt="NadeRush Logo" />
     <input type="text" id="usernameInput" placeholder="Set Your Nickname" maxlength="20" />
-    <button id="playBtn">Play</button>
+    <button id="playBtn">Join Match</button>
   </div>
 
   <canvas id="gameCanvas" width="800" height="600"></canvas>
