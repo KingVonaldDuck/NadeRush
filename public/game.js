@@ -46,6 +46,13 @@ function easeOutQuad(t) {
     return 1 - Math.pow(1 - t, 3);
 }
 
+
+function dist(x1, y1, x2, y2) {
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+}
+
+
+
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
     let color = '#';
@@ -189,8 +196,14 @@ function update() {
             bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * easedT;
             bomb.y = bomb.startY + (bomb.targetY - bomb.startY) * easedT;
 
+
             // Spin while moving
-            bomb.rotationAngle += 0.1;
+            if (dist(bomb.startX, bomb.startY, bomb.targetX, bomb.targetY) > 100) {
+                bomb.rotationAngle += 0.1;
+            } else {
+                bomb.rotationAngle += 0.03;
+            }
+            
 
             // Explosion/removal condition
             if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
