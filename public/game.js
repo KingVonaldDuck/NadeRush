@@ -24,6 +24,8 @@ const player = {
     dx: 0,
     dy: 0,
     color: "white",
+    health: 100,
+
 };
 
 const remotePlayers = {};
@@ -191,7 +193,7 @@ function update() {
             bomb.rotationAngle += 0.1;
 
             // Explosion/removal condition
-            if (bomb.progress >= 0.8 || bomb.timeSinceThrow >= 1.5) {
+            if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
                 explosions.push({
                     x: bomb.x,
                     y: bomb.y,
@@ -299,6 +301,36 @@ function drawPlayerCount() {
     ctx.fillText(`Players: ${playerCount}`, 55, 20);
 }
 
+
+function drawHealthBar(health) {
+    const barWidth = 300;
+    const barHeight = 30;
+    const x = 40;
+    const y = canvas.height - 70;
+
+    const healthRatio = Math.max(0, health) / 100;
+
+    
+
+    // Background
+    ctx.fillStyle = 'gray';
+    ctx.fillRect(x, y, barWidth, barHeight);
+
+    // Health
+    ctx.fillStyle = '#439b4aff';
+    ctx.fillRect(x, y, barWidth * healthRatio, barHeight);
+
+    // Border
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, barWidth, barHeight);
+
+    ctx.fillStyle = 'white';
+    ctx.font = '16px Consolas';
+    ctx.fillText(health, 55, canvas.height-80);
+}
+
+
 // ---------------------
 // Main Loop
 // ---------------------
@@ -318,6 +350,7 @@ function loop() {
 
     drawBombs();
     drawExplosions();
+    drawHealthBar(player.health);
 
     requestAnimationFrame(loop);
 }
