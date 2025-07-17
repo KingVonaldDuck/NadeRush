@@ -10,11 +10,10 @@ const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 10;
 
 const players = {};
+const bombs = [];
 
-// Serve static files from 'public' folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve index.html on root
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -28,11 +27,9 @@ io.on('connection', (socket) => {
         return;
     }
 
-    // Wait for the client to register username before adding player
     socket.on('registerPlayer', (data) => {
         const username = (data.username || "Player").trim();
 
-        // Initialize player data and add to players list
         players[socket.id] = {
             id: socket.id,
             username,
@@ -42,14 +39,10 @@ io.on('connection', (socket) => {
         };
 
         console.log(`Registered player: ${username} (${socket.id})`);
-        // Send full players list to new player
         socket.emit('currentPlayers', players);
-
-        // Notify all others about new player
         socket.broadcast.emit('newPlayer', players[socket.id]);
     });
 
-    // Update player position and broadcast
     socket.on('playerMove', (data) => {
         if (players[socket.id]) {
             players[socket.id].x = data.x;
@@ -60,6 +53,18 @@ io.on('connection', (socket) => {
                 y: data.y,
             });
         }
+    });
+
+    socket.on('dropBomb', (data) => {
+        console.log('Bomb dropped by:', socket.id, data);
+        const bomb = {
+            startX: data.startX,
+            startY: data.startY,
+            targetX: data.targetX,
+            targetY: data.targetY,
+            ownerId: data.id,
+        };
+        io.emit('bombDropped', bomb);
     });
 
     socket.on('disconnect', () => {
