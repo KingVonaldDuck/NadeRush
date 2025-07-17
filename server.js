@@ -36,10 +36,15 @@ io.on('connection', (socket) => {
             x: Math.random() * 2000 + 500,
             y: Math.random() * 2000 + 500,
             color: getRandomColor(),
+            health: 100 // Everyone starts with 100 health
         };
 
         console.log(`Registered player: ${username} (${socket.id})`);
+
+        // Send all current players (including health) to the new player
         socket.emit('currentPlayers', players);
+
+        // Broadcast new player (including health) to others
         socket.broadcast.emit('newPlayer', players[socket.id]);
     });
 
