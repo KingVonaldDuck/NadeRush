@@ -24,7 +24,7 @@ const player = {
     dx: 0,
     dy: 0,
     color: "white",
-    health: 100,
+    health: 90,
 
 };
 
@@ -281,7 +281,11 @@ function drawPlayer(p) {
     ctx.fillText(p.username || p.id.substring(0, 4), p.x - camera.x, p.y - camera.y - p.size - 15);
 }
 
+let pulseTime = 0;
+
 function drawBombs() {
+    pulseTime += 0.15;
+    const pulseScale = 1 + Math.sin(pulseTime) * 0.1;
     for (const bomb of bombs) {
         const x = bomb.x - camera.x;
         const y = bomb.y - camera.y;
@@ -290,6 +294,7 @@ function drawBombs() {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(bomb.rotationAngle);
+        ctx.scale(pulseScale, pulseScale);
         ctx.drawImage(grenadeImg, -bomb.radius, -bomb.radius, size, size);
         ctx.restore();
     }
@@ -326,7 +331,7 @@ function drawHealthBar(health) {
     
 
     // Background
-    ctx.fillStyle = 'gray';
+    ctx.fillStyle = '#1f1f1fff';
     ctx.fillRect(x, y, barWidth, barHeight);
 
     // Health
