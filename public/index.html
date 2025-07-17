@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>BombsRoyal</title>
+  <title>NadeRush</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
-      background: #222;
-      font-family: Consolas, 'Courier New', Courier, monospace;
+      background: url('Home-BG.png') no-repeat center center fixed;
+      background-size: cover;
+      font-family: 'Arial Rounded MT Bold', Arial, Verdana, Tahoma, sans-serif;
       font-weight: bold;
     }
 
@@ -16,7 +17,7 @@
       position: absolute;
       top: 0; left: 0;
       width: 100vw; height: 100vh;
-      background: #222;
+      background: rgba(34, 34, 34, 0.75);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -27,35 +28,54 @@
 
     #homeScreen input,
     #homeScreen button {
-      font-family: Consolas, 'Courier New', Courier, monospace;
+      font-family: 'Arial Rounded MT Bold', Arial, Verdana, Tahoma, sans-serif;
     }
 
     #homeScreen input {
-      padding: 10px;
-      font-size: 18px;
-      width: 250px;
-      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 20px;
+      width: 350px;
+      border-radius: 4px;
       border: none;
-      outline: 3px solid rgb(196, 196, 196);
+      outline: 1px solid rgb(255, 255, 255);
+      background-color: rgba(0, 0, 0, 0.6);
+      color: white;
     }
 
     #homeScreen button {
-      padding: 12px 30px;
-      font-size: 20px;
+      padding: 15px 30px;
+      font-size: 30px;
       border: none;
-      border-radius: 8px;
-      background-color: #555;
+      border-radius: 16px;
+      background: linear-gradient(145deg, #046419, #034913);
       color: white;
       cursor: pointer;
-      outline: 3px solid rgb(124, 124, 124);
-    }
+      outline: 1px solid rgb(255, 255, 255);
+
+  /* 3D shadow effect */
+      box-shadow:
+        0 6px 0 #034913,         /* thick base shadow */
+        0 10px 15px rgba(0,0,0,0.5);  /* soft drop shadow */
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
 
     #homeScreen button:hover {
-      background-color: #000000;
+      background: linear-gradient(145deg, #058825, #045d18);
+      box-shadow:
+        0 8px 0 #02350a,
+        0 14px 20px rgba(0,0,0,0.6);
+      transform: translateY(1px);
+    }
+
+    #homeScreen button:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 3px 0 #034913,
+        0 7px 10px rgba(0,0,0,0.3);
     }
 
     #logo {
-      width: 300px;
+      width: 400px;
       max-width: 80%;
       height: auto;
       user-select: none;
@@ -70,7 +90,7 @@
 </head>
 <body>
   <div id="homeScreen">
-    <img id="logo" src="BombsRoyal-T.png" alt="BombsRoyal Logo" />
+    <img id="logo" src="NadeRush-T.png" alt="NadeRush Logo" />
     <input type="text" id="usernameInput" placeholder="Set Your Nickname" maxlength="20" />
     <button id="playBtn">Play</button>
   </div>
