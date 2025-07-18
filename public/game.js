@@ -25,7 +25,6 @@ const player = {
     dy: 0,
     color: "white",
     health: 90,
-
 };
 
 const remotePlayers = {};
@@ -46,12 +45,9 @@ function easeOutQuad(t) {
     return 1 - Math.pow(1 - t, 3);
 }
 
-
 function dist(x1, y1, x2, y2) {
     return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 }
-
-
 
 function getRandomColor() {
     const letters = '0123456789ABCDEF';
@@ -62,6 +58,15 @@ function getRandomColor() {
     return color;
 }
 
+function playSoundAtVolume(soundPath, sourceX, sourceY, maxDistance = 1000) {
+    const distance = dist(player.x, player.y, sourceX, sourceY);
+    const volume = Math.max(0, 1 - distance / maxDistance);
+
+    const sound = new Audio(soundPath);
+    sound.volume = volume;
+    sound.play();
+}
+
 // ---------------------
 // Canvas Setup & Resize
 // ---------------------
@@ -70,6 +75,7 @@ function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 }
+
 window.addEventListener("resize", resizeCanvas);
 
 // ---------------------
@@ -103,6 +109,7 @@ function connectSocket() {
                 player.x = playersData[id].x;
                 player.y = playersData[id].y;
                 player.color = playersData[id].color || player.color;
+                player.health = playersData[id].health || player.health;
             }
         }
     });
@@ -139,6 +146,16 @@ function connectSocket() {
             rotationAngle: 0,
             timeSinceThrow: 0,
         });
+
+        playSoundAtVolume("Nade-Throw.mp3", bombData.startX, bombData.startY, 800);
+    });
+
+    socket.on('playerHealthUpdate', ({ id, health }) => {
+        if (id === player.id) {
+            player.health = health;
+        } else if (remotePlayers[id]) {
+            remotePlayers[id].health = health;
+        }
     });
 
     socket.on('playerDisconnected', (playerId) => {
@@ -196,14 +213,12 @@ function update() {
             bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * easedT;
             bomb.y = bomb.startY + (bomb.targetY - bomb.startY) * easedT;
 
-
             // Spin while moving
             if (dist(bomb.startX, bomb.startY, bomb.targetX, bomb.targetY) > 100) {
                 bomb.rotationAngle += 0.1;
             } else {
                 bomb.rotationAngle += 0.03;
             }
-            
 
             // Explosion/removal condition
             if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
@@ -216,7 +231,7 @@ function update() {
                     expandSpeed: 20,
                     fadeSpeed: 0.06,
                 });
-
+                playSoundAtVolume("Nade-Boom.mp3", bomb.x, bomb.y, 1000);
                 bombs.splice(i, 1);
                 console.log("boom");
             }
@@ -279,6 +294,7 @@ function drawPlayer(p) {
     ctx.font = '16px Consolas';
     ctx.textAlign = 'center';
     ctx.fillText(p.username || p.id.substring(0, 4), p.x - camera.x, p.y - camera.y - p.size - 15);
+
 }
 
 let pulseTime = 0;
@@ -319,7 +335,6 @@ function drawPlayerCount() {
     ctx.fillText(`Players: ${playerCount}`, 55, 20);
 }
 
-
 function drawHealthBar(health) {
     const barWidth = 300;
     const barHeight = 30;
@@ -327,8 +342,6 @@ function drawHealthBar(health) {
     const y = canvas.height - 70;
 
     const healthRatio = Math.max(0, health) / 100;
-
-    
 
     // Background
     ctx.fillStyle = '#1f1f1fff';
@@ -345,9 +358,8 @@ function drawHealthBar(health) {
 
     ctx.fillStyle = 'white';
     ctx.font = '16px Consolas';
-    ctx.fillText(health, 55, canvas.height-80);
+    ctx.fillText(health, 55, canvas.height - 80);
 }
-
 
 // ---------------------
 // Main Loop
@@ -419,3 +431,4 @@ document.getElementById("playBtn").addEventListener("click", () => {
         keys[e.key.toLowerCase()] = false;
     });
 });
+
