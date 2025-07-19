@@ -24,7 +24,8 @@ const player = {
     dx: 0,
     dy: 0,
     color: "white",
-    health: 90,
+    health: 100,
+    alive: true
 };
 
 const remotePlayers = {};
@@ -32,6 +33,9 @@ const camera = { x: 0, y: 0 };
 const keys = {};
 let lastSentPlayerX = 0;
 let lastSentPlayerY = 0;
+
+let spectating = false;
+let spectateTarget = null;
 
 const grenadeImg = new Image();
 grenadeImg.src = 'grenade-grey.png';
@@ -98,6 +102,36 @@ function connectSocket() {
         socket.disconnect();
     });
 
+    socket.on('death', (killerId) => {
+        player.alive = false;
+        player.killerId = killerId;
+
+        if (killerId === player.id) {
+            player.killerName = "Yourself";
+        } else if (remotePlayers[killerId]) {
+            player.killerName = remotePlayers[killerId].username || killerId;
+        } else {
+            player.killerName = killerId;
+        }
+
+        spectating = true;
+        spectateTarget = killerId;
+
+        console.log(`You were killed by ${killerName}`);
+    });
+
+    socket.on('respawn', (data) => {
+        player.x = data.x;
+        player.y = data.y;
+        player.health = data.health;
+        player.alive = true;
+
+        spectating = false;
+        spectateTarget = null;
+
+        console.log("You have respawned!");
+    });
+
     socket.on('currentPlayers', (playersData) => {
         console.log('Received currentPlayers:', playersData);
         for (let id in playersData) {
@@ -105,11 +139,13 @@ function connectSocket() {
                 remotePlayers[id] = playersData[id];
                 remotePlayers[id].size = player.size;
                 remotePlayers[id].color = playersData[id].color || getRandomColor();
+                remotePlayers[id].alive = playersData[id].alive;
             } else {
                 player.x = playersData[id].x;
                 player.y = playersData[id].y;
                 player.color = playersData[id].color || player.color;
                 player.health = playersData[id].health || player.health;
+                player.alive = playersData[id].alive;
             }
         }
     });
@@ -120,6 +156,7 @@ function connectSocket() {
             remotePlayers[newPlayerData.id] = newPlayerData;
             remotePlayers[newPlayerData.id].size = player.size;
             remotePlayers[newPlayerData.id].color = newPlayerData.color || getRandomColor();
+            remotePlayers[newPlayerData.id].alive = newPlayerData.alive !== undefined ? newPlayerData.alive : true;
         }
     });
 
@@ -127,6 +164,7 @@ function connectSocket() {
         if (remotePlayers[data.id]) {
             remotePlayers[data.id].x = data.x;
             remotePlayers[data.id].y = data.y;
+            remotePlayers[data.id].alive = data.alive; // <-- update alive here
         }
     });
 
@@ -150,11 +188,13 @@ function connectSocket() {
         playSoundAtVolume("Nade-Throw.mp3", bombData.startX, bombData.startY, 800);
     });
 
-    socket.on('playerHealthUpdate', ({ id, health }) => {
+    socket.on('playerHealthUpdate', ({ id, health, alive }) => {
         if (id === player.id) {
             player.health = health;
+            player.alive = alive;
         } else if (remotePlayers[id]) {
             remotePlayers[id].health = health;
+            remotePlayers[id].alive = alive;  // correct this line
         }
     });
 
@@ -167,12 +207,87 @@ function connectSocket() {
 // Game State Update Functions
 // ---------------------
 
-function updateCamera() {
-    camera.x = player.x - canvas.width / 2;
-    camera.y = player.y - canvas.height / 2;
+function updateCamera(target) {
+    if (!target) return;
+    camera.x = target.x - canvas.width / 2;
+    camera.y = target.y - canvas.height / 2;
 }
 
-function update() {
+function updateBombsAndExplosions(dt) {
+    for (let i = bombs.length - 1; i >= 0; i--) {
+        const bomb = bombs[i];
+
+        bomb.timeSinceThrow += dt;
+
+        if (!bomb.exploded) {
+            bomb.progress += 0.007 * 60 * dt;  // scale by dt to keep timing consistent
+            let t = Math.min(bomb.progress, 1);
+            let easedT = easeOutQuad(t);
+
+            bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * easedT;
+            bomb.y = bomb.startY + (bomb.targetY - bomb.startY) * easedT;
+
+            // Spin while moving
+            if (dist(bomb.startX, bomb.startY, bomb.targetX, bomb.targetY) > 100) {
+                bomb.rotationAngle += 0.1 * 60 * dt;
+            } else {
+                bomb.rotationAngle += 0.03 * 60 * dt;
+            }
+
+            // Explosion/removal condition
+            if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
+                explosions.push({
+                    x: bomb.x,
+                    y: bomb.y,
+                    radius: 0,
+                    maxRadius: 200,
+                    opacity: 1,
+                    expandSpeed: 1000,
+                    fadeSpeed: 4,
+                });
+                playSoundAtVolume("Nade-Boom.mp3", bomb.x, bomb.y, 1000);
+                bombs.splice(i, 1);
+                console.log("boom");
+            }
+        }
+    }
+
+    updateExplosions(dt);
+}wa
+
+function updateExplosions(dt) {
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        const exp = explosions[i];
+        exp.radius += exp.expandSpeed * dt;
+        exp.opacity -= exp.fadeSpeed * dt;
+
+        if (exp.radius >= exp.maxRadius) {
+            explosions.splice(i, 1);
+        }
+    }
+}
+
+let lastTimestamp = 0;
+
+function update(dt) {
+    // If player is dead, skip player movement and emitting movement
+    if (!player.alive) {
+        player.dx = 0;
+        player.dy = 0;
+
+        // Still update bombs and explosions so game effects keep running
+        updateBombsAndExplosions(dt);
+
+        // Also update camera to spectate if applicable
+        if (spectating && remotePlayers[spectateTarget]) {
+            updateCamera(remotePlayers[spectateTarget]);
+        } else {
+            updateCamera(player);
+        }
+
+        return; // skip rest
+    }
+
     // Player movement input
     const left = keys["a"] || keys["arrowleft"];
     const right = keys["d"] || keys["arrowright"];
@@ -182,15 +297,20 @@ function update() {
     const down = keys["s"] || keys["arrowdown"];
     player.dy = up && !down ? -player.speed : down && !up ? player.speed : 0;
 
-    // Update player position
-    player.x += player.dx;
-    player.y += player.dy;
+    // Update player position (using dt)
+    player.x += player.dx * dt * 60; // multiply by 60 for natural speed (since speed is tuned for ~60fps)
+    player.y += player.dy * dt * 60;
 
     // Clamp player position within world boundaries
     player.x = Math.max(player.size, Math.min(worldSize - player.size, player.x));
     player.y = Math.max(player.size, Math.min(worldSize - player.size, player.y));
 
-    updateCamera();
+    // Update camera (normal or spectate)
+    if (spectating && remotePlayers[spectateTarget]) {
+        updateCamera(remotePlayers[spectateTarget]);
+    } else {
+        updateCamera(player);
+    }
 
     // Emit player movement only if position changed
     if (player.x !== lastSentPlayerX || player.y !== lastSentPlayerY) {
@@ -199,59 +319,10 @@ function update() {
         lastSentPlayerY = player.y;
     }
 
-    // Update bombs
-    for (let i = bombs.length - 1; i >= 0; i--) {
-        const bomb = bombs[i];
-
-        bomb.timeSinceThrow += 1 / 60; // assuming 60 FPS approx
-
-        if (!bomb.exploded) {
-            bomb.progress += 0.007;  // progress towards target
-            let t = Math.min(bomb.progress, 1);
-            let easedT = easeOutQuad(t);
-
-            bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * easedT;
-            bomb.y = bomb.startY + (bomb.targetY - bomb.startY) * easedT;
-
-            // Spin while moving
-            if (dist(bomb.startX, bomb.startY, bomb.targetX, bomb.targetY) > 100) {
-                bomb.rotationAngle += 0.1;
-            } else {
-                bomb.rotationAngle += 0.03;
-            }
-
-            // Explosion/removal condition
-            if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
-                explosions.push({
-                    x: bomb.x,
-                    y: bomb.y,
-                    radius: 0,
-                    maxRadius: 300,
-                    opacity: 1,
-                    expandSpeed: 20,
-                    fadeSpeed: 0.06,
-                });
-                playSoundAtVolume("Nade-Boom.mp3", bomb.x, bomb.y, 1000);
-                bombs.splice(i, 1);
-                console.log("boom");
-            }
-        }
-    }
-
-    updateExplosions();
+    // Update bombs and explosions
+    updateBombsAndExplosions(dt);
 }
 
-function updateExplosions() {
-    for (let i = explosions.length - 1; i >= 0; i--) {
-        const exp = explosions[i];
-        exp.radius += exp.expandSpeed;
-        exp.opacity -= exp.fadeSpeed;
-
-        if (exp.radius >= exp.maxRadius) {
-            explosions.splice(i, 1);
-        }
-    }
-}
 
 // ---------------------
 // Drawing Functions
@@ -294,7 +365,6 @@ function drawPlayer(p) {
     ctx.font = '16px Consolas';
     ctx.textAlign = 'center';
     ctx.fillText(p.username || p.id.substring(0, 4), p.x - camera.x, p.y - camera.y - p.size - 15);
-
 }
 
 let pulseTime = 0;
@@ -361,26 +431,63 @@ function drawHealthBar(health) {
     ctx.fillText(health, 55, canvas.height - 80);
 }
 
+
+function drawSpectateInfo() {
+    if (!player.alive && player.killerName) {
+        ctx.fillStyle = 'red';
+        ctx.font = '28px Consolas';
+        ctx.textAlign = 'center';
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 3;
+
+        ctx.fillText(`ELIMINATED BY ${player.killerName}`, centerX, centerY - 20);
+        ctx.fillStyle = 'white';
+        ctx.font = '22px Consolas';
+        ctx.fillText(`SPECTATING ${player.killerName}`, centerX, centerY + 20);
+    }
+}
+
+
+
+
 // ---------------------
 // Main Loop
 // ---------------------
 
-function loop() {
-    update();
-    clear();
-    drawPlayerCount();
+// Updated main loop to handle dt
+function loop(timestamp = 0) {
+    const dt = (timestamp - lastTimestamp) / 1000; // convert ms to seconds
+    lastTimestamp = timestamp;
 
-    if (player.id) {
+    update(dt);
+
+    clear();
+
+    
+
+    if (player.id && player.alive) {
         drawPlayer(player);
     }
 
     for (const id in remotePlayers) {
-        drawPlayer(remotePlayers[id]);
+        if (remotePlayers[id].alive) {
+            drawPlayer(remotePlayers[id]);
+        }
     }
 
     drawBombs();
     drawExplosions();
+
     drawHealthBar(player.health);
+
+    if (!player.alive) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    drawSpectateInfo();
+    drawPlayerCount();
 
     requestAnimationFrame(loop);
 }
@@ -408,7 +515,7 @@ document.getElementById("playBtn").addEventListener("click", () => {
     loop();
 
     window.addEventListener('mousedown', (e) => {
-        if (e.button === 0) { // Left click
+        if (e.button === 0 && player.alive) { // only if alive
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left + camera.x;
             const mouseY = e.clientY - rect.top + camera.y;
@@ -423,6 +530,7 @@ document.getElementById("playBtn").addEventListener("click", () => {
         }
     });
 
+
     window.addEventListener("keydown", (e) => {
         keys[e.key.toLowerCase()] = true;
     });
@@ -431,4 +539,3 @@ document.getElementById("playBtn").addEventListener("click", () => {
         keys[e.key.toLowerCase()] = false;
     });
 });
-
