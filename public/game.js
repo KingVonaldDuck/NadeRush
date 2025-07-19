@@ -253,7 +253,7 @@ function updateBombsAndExplosions(dt) {
     }
 
     updateExplosions(dt);
-}wa
+}
 
 function updateExplosions(dt) {
     for (let i = explosions.length - 1; i >= 0; i--) {
