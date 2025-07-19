@@ -71,13 +71,18 @@ io.on('connection', (socket) => {
             x: Math.random() * 2000 + 500,
             y: Math.random() * 2000 + 500,
             color: getRandomColor(),
-            health: 100
+            health: 100,
+            alive: true
         };
 
         console.log(`Registered player: ${username} (${socket.id})`);
 
         // Send current players to new player
-        socket.emit('currentPlayers', players);
+        const alivePlayers = {};
+        for (const id in players) {
+            alivePlayers[id] = players[id];
+        }
+        socket.emit('currentPlayers', alivePlayers);
 
         // Notify others about the new player
         socket.broadcast.emit('newPlayer', players[socket.id]);
@@ -92,6 +97,7 @@ io.on('connection', (socket) => {
                 id: socket.id,
                 x: data.x,
                 y: data.y,
+                alive: players[socket.id].alive
             });
         }
     });
@@ -116,31 +122,68 @@ io.on('connection', (socket) => {
 
             console.log(`Bomb exploded at (${explosionX}, ${explosionY})`);
 
-            // Track damaged players to broadcast updates efficiently
             const damagedPlayers = [];
 
             for (const id in players) {
                 const p = players[id];
+
+                if (!p.alive || p.health <= 0) continue;
+
                 if (dist(p.x, p.y, explosionX, explosionY) <= DAMAGE_RADIUS) {
                     p.health = Math.max(0, p.health - DAMAGE_AMOUNT);
-                    damagedPlayers.push({ id: p.id, health: p.health });
-                    console.log(`Damaged player ${p.username} (${p.id}). New health: ${p.health}`);
 
-                    // Optional: Kick player if health reaches zero
                     if (p.health === 0) {
-                        io.to(p.id).emit('kicked', { reason: 'You died!' });
-                        delete players[p.id];
-                        io.emit('playerDisconnected', p.id);
+                        p.alive = false;
+
+                        // Send death info to the victim
+                        io.to(p.id).emit('death', socket.id);
+
+                        // Broadcast death and health update
+                        io.emit('playerHealthUpdate', {
+                            id: p.id,
+                            health: 0,
+                            alive: false
+                        });
+
+                        // Respawn after 3 seconds
+                        setTimeout(() => {
+                            p.health = 100;
+                            p.alive = true;
+                            p.x = Math.random() * 2000 + 500;
+                            p.y = Math.random() * 2000 + 500;
+
+                            io.to(p.id).emit('respawn', {
+                                x: p.x,
+                                y: p.y,
+                                health: p.health,
+                                alive: true
+                            });
+
+                            io.emit('playerHealthUpdate', {
+                                id: p.id,
+                                health: p.health,
+                                alive: true
+                            });
+
+                            io.emit('playerMoved', {
+                                id: p.id,
+                                x: p.x,
+                                y: p.y,
+                                alive: true
+                            });
+
+                        }, 3000);
+                    } else {
+                        damagedPlayers.push({ id: p.id, health: p.health, alive: p.alive });
                     }
                 }
             }
 
-            // Broadcast health updates to all clients
-            damagedPlayers.forEach(({ id, health }) => {
-                io.emit('playerHealthUpdate', { id, health });
+            damagedPlayers.forEach(({ id, health, alive }) => {
+                io.emit('playerHealthUpdate', { id, health, alive });
             });
 
-        }, 1500); // Delay matches client-side explosion timing
+        }, 1500);
     });
 
     // Player disconnect
