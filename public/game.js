@@ -14,6 +14,9 @@ const worldSize = 3000;
 const bombs = [];
 const explosions = [];
 
+const hotbarItems = ['🧨', '💣', '🔫', '🛡️', '⚡', '🪖'];
+let selectedItemIndex = 0;
+
 const player = {
     id: null,
     username: null,
@@ -114,11 +117,18 @@ function connectSocket() {
             player.killerName = killerId;
         }
 
-        spectating = true;
-        spectateTarget = killerId;
+        console.log(`You were killed by ${player.killerName}`);
 
-        console.log(`You were killed by ${killerName}`);
+        // Delay spectate by 1 second
+        setTimeout(() => {
+            spectating = true;
+            spectateTarget = killerId;
+        }, 1000);
     });
+
+
+
+
 
     socket.on('respawn', (data) => {
         player.x = data.x;
@@ -170,23 +180,35 @@ function connectSocket() {
 
     socket.on("bombDropped", (bombData) => {
         console.log('Received bombDropped:', bombData);
+
+        const { startX, startY, targetX, targetY } = bombData;
+
+        const timeToReach = 1.5; // seconds
+        const dx = targetX - startX;
+        const dy = targetY - startY;
+        const distToTarget = Math.sqrt(dx * dx + dy * dy);
+
+        const speed = ((distToTarget / timeToReach) * 2 > 1000) ? 1000 : (distToTarget / timeToReach) * 2;
+        const angle = Math.atan2(dy, dx);
+
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+
         bombs.push({
-            startX: bombData.startX,
-            startY: bombData.startY,
-            targetX: bombData.targetX,
-            targetY: bombData.targetY,
-            x: bombData.startX,
-            y: bombData.startY,
-            progress: 0,
-            exploded: false,
-            radius: 10,
-            ownerId: bombData.ownerId || null,
+            x: startX,
+            y: startY,
+            vx,
+            vy,
             rotationAngle: 0,
             timeSinceThrow: 0,
+            explodeAfter: timeToReach,
+            exploded: false,
+            radius: 10
         });
 
-        playSoundAtVolume("Nade-Throw.mp3", bombData.startX, bombData.startY, 800);
+        playSoundAtVolume("Nade-Throw.mp3", startX, startY, 800);
     });
+
 
     socket.on('playerHealthUpdate', ({ id, health, alive }) => {
         if (id === player.id) {
@@ -207,6 +229,10 @@ function connectSocket() {
 // Game State Update Functions
 // ---------------------
 
+
+
+
+
 function updateCamera(target) {
     if (!target) return;
     camera.x = target.x - canvas.width / 2;
@@ -214,28 +240,47 @@ function updateCamera(target) {
 }
 
 function updateBombsAndExplosions(dt) {
+    const bounceDamping = 0.7;
+
     for (let i = bombs.length - 1; i >= 0; i--) {
         const bomb = bombs[i];
-
         bomb.timeSinceThrow += dt;
 
         if (!bomb.exploded) {
-            bomb.progress += 0.007 * 60 * dt;  // scale by dt to keep timing consistent
-            let t = Math.min(bomb.progress, 1);
-            let easedT = easeOutQuad(t);
+            bomb.x += bomb.vx * dt;
+            bomb.y += bomb.vy * dt;
 
-            bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * easedT;
-            bomb.y = bomb.startY + (bomb.targetY - bomb.startY) * easedT;
-
-            // Spin while moving
-            if (dist(bomb.startX, bomb.startY, bomb.targetX, bomb.targetY) > 100) {
-                bomb.rotationAngle += 0.1 * 60 * dt;
-            } else {
-                bomb.rotationAngle += 0.03 * 60 * dt;
+            if (bomb.x < 0) {
+                bomb.x = 0;
+                bomb.vx = -bomb.vx * bounceDamping;
+            } else if (bomb.x > worldSize) {
+                bomb.x = worldSize;
+                bomb.vx = -bomb.vx * bounceDamping;
             }
 
-            // Explosion/removal condition
-            if (bomb.progress >= 0.7 || bomb.timeSinceThrow >= 1.5) {
+            if (bomb.y < 0) {
+                bomb.y = 0;
+                bomb.vy = -bomb.vy * bounceDamping;
+            } else if (bomb.y > worldSize) {
+                bomb.y = worldSize;
+                bomb.vy = -bomb.vy * bounceDamping;
+            }
+
+            bomb.vx *= 0.98;
+            bomb.vy *= 0.98;
+
+            bomb.rotationAngle += 0.1 * 60 * dt;
+
+            if (bomb.timeSinceThrow >= bomb.explodeAfter) {
+                // Emit bomb exploded with last position
+                socket.emit('bombExploded', {
+                    explosionX: bomb.x,
+                    explosionY: bomb.y,
+                    ownerId: player.id
+                    
+                });
+                console.log("boom");
+
                 explosions.push({
                     x: bomb.x,
                     y: bomb.y,
@@ -247,13 +292,17 @@ function updateBombsAndExplosions(dt) {
                 });
                 playSoundAtVolume("Nade-Boom.mp3", bomb.x, bomb.y, 1000);
                 bombs.splice(i, 1);
-                console.log("boom");
+                console.log("💥 boom");
             }
         }
     }
 
     updateExplosions(dt);
 }
+
+
+
+
 
 function updateExplosions(dt) {
     for (let i = explosions.length - 1; i >= 0; i--) {
@@ -432,6 +481,41 @@ function drawHealthBar(health) {
 }
 
 
+
+function drawHotbar(ctx, canvas) {
+  const slotSize = 50;
+  const spacing = 10;
+  const padding = 20;
+
+  const totalWidth = hotbarItems.length * (slotSize + spacing) - spacing;
+  const startX = canvas.width - totalWidth - padding;
+  const y = canvas.height - slotSize - padding;
+
+  for (let i = 0; i < hotbarItems.length; i++) {
+    const x = startX + i * (slotSize + spacing);
+
+    // Background
+    ctx.fillStyle = i === selectedItemIndex ? '#afafafff' : 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(x, y, slotSize, slotSize);
+
+    // Border
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, slotSize, slotSize);
+
+    // Item icon
+    ctx.fillStyle = 'white';
+    ctx.font = '30px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(hotbarItems[i], x + slotSize / 2, y + slotSize / 2);
+  }
+}
+
+
+
+
+
 function drawSpectateInfo() {
     if (!player.alive && player.killerName) {
         ctx.fillStyle = 'red';
@@ -481,6 +565,8 @@ function loop(timestamp = 0) {
 
     drawHealthBar(player.health);
 
+    drawHotbar(ctx, canvas);
+
     if (!player.alive) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -515,19 +601,25 @@ document.getElementById("playBtn").addEventListener("click", () => {
     loop();
 
     window.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && player.alive) { // only if alive
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left + camera.x;
-            const mouseY = e.clientY - rect.top + camera.y;
 
-            socket.emit('dropBomb', {
-                startX: player.x,
-                startY: player.y,
-                targetX: mouseX,
-                targetY: mouseY,
-                id: socket.id
-            });
+        if (hotbarItems[selectedItemIndex] === '💣') {
+
+            if (e.button === 0 && player.alive) { // only if alive
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left + camera.x;
+                const mouseY = e.clientY - rect.top + camera.y;
+
+                socket.emit('dropBomb', {
+                    startX: player.x,
+                    startY: player.y,
+                    targetX: mouseX,
+                    targetY: mouseY,
+                    id: socket.id
+                });
+            }
+
         }
+
     });
 
 
@@ -538,4 +630,16 @@ document.getElementById("playBtn").addEventListener("click", () => {
     window.addEventListener("keyup", (e) => {
         keys[e.key.toLowerCase()] = false;
     });
+
+
+    window.addEventListener('keydown', (e) => {
+    const num = parseInt(e.key);
+    if (!isNaN(num) && num >= 1 && num <= hotbarItems.length) {
+        selectedItemIndex = num - 1;
+    }
+    });
+
+
+
+
 });
