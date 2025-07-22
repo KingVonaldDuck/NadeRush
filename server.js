@@ -102,11 +102,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Bomb dropped event and explosion handling
+    // Bomb dropped event — just broadcast to clients
     socket.on('dropBomb', (data) => {
         console.log('Bomb dropped by:', socket.id, data);
 
-        // Broadcast bomb drop to all clients
         io.emit('bombDropped', {
             startX: data.startX,
             startY: data.startY,
@@ -114,76 +113,80 @@ io.on('connection', (socket) => {
             targetY: data.targetY,
             ownerId: data.id,
         });
+    });
 
-        // Delay to simulate bomb travel, then apply damage
-        setTimeout(() => {
-            const explosionX = data.targetX;
-            const explosionY = data.targetY;
+    // Bomb exploded event — clients send back last bomb position for damage calc
+    socket.on('bombExploded', (data) => {
+        const { explosionX, explosionY, ownerId } = data;
+        console.log(`Bomb exploded at (${explosionX}, ${explosionY}) by ${ownerId}`);
 
-            console.log(`Bomb exploded at (${explosionX}, ${explosionY})`);
+        const damagedPlayers = [];
 
-            const damagedPlayers = [];
+        for (const id in players) {
+            const p = players[id];
 
-            for (const id in players) {
-                const p = players[id];
+            if (!p.alive || p.health <= 0) {
+                
 
-                if (!p.alive || p.health <= 0) continue;
+                continue;
 
-                if (dist(p.x, p.y, explosionX, explosionY) <= DAMAGE_RADIUS) {
-                    p.health = Math.max(0, p.health - DAMAGE_AMOUNT);
-
-                    if (p.health === 0) {
-                        p.alive = false;
-
-                        // Send death info to the victim
-                        io.to(p.id).emit('death', socket.id);
-
-                        // Broadcast death and health update
-                        io.emit('playerHealthUpdate', {
-                            id: p.id,
-                            health: 0,
-                            alive: false
-                        });
-
-                        // Respawn after 3 seconds
-                        setTimeout(() => {
-                            p.health = 100;
-                            p.alive = true;
-                            p.x = Math.random() * 2000 + 500;
-                            p.y = Math.random() * 2000 + 500;
-
-                            io.to(p.id).emit('respawn', {
-                                x: p.x,
-                                y: p.y,
-                                health: p.health,
-                                alive: true
-                            });
-
-                            io.emit('playerHealthUpdate', {
-                                id: p.id,
-                                health: p.health,
-                                alive: true
-                            });
-
-                            io.emit('playerMoved', {
-                                id: p.id,
-                                x: p.x,
-                                y: p.y,
-                                alive: true
-                            });
-
-                        }, 3000);
-                    } else {
-                        damagedPlayers.push({ id: p.id, health: p.health, alive: p.alive });
-                    }
-                }
             }
 
-            damagedPlayers.forEach(({ id, health, alive }) => {
-                io.emit('playerHealthUpdate', { id, health, alive });
-            });
+            if (dist(p.x, p.y, explosionX, explosionY) <= DAMAGE_RADIUS) {
+                p.health = Math.max(0, p.health - DAMAGE_AMOUNT);
 
-        }, 1500);
+                if (p.health === 0) {
+                    p.alive = false;
+
+                    // Send death info to victim
+                    io.to(p.id).emit('death', ownerId);
+
+                    // Broadcast death and health update
+                    io.emit('playerHealthUpdate', {
+                        id: p.id,
+                        health: 0,
+                        alive: false
+                    });
+
+
+
+
+                    // Respawn after 3 seconds
+                    setTimeout(() => {
+                        p.health = 100;
+                        p.alive = true;
+                        p.x = Math.random() * 2000 + 500;
+                        p.y = Math.random() * 2000 + 500;
+
+                        io.to(p.id).emit('respawn', {
+                            x: p.x,
+                            y: p.y,
+                            health: p.health,
+                            alive: true
+                        });
+
+                        io.emit('playerHealthUpdate', {
+                            id: p.id,
+                            health: p.health,
+                            alive: true
+                        });
+
+                        io.emit('playerMoved', {
+                            id: p.id,
+                            x: p.x,
+                            y: p.y,
+                            alive: true
+                        });
+                    }, 3000);
+                } else {
+                    damagedPlayers.push({ id: p.id, health: p.health, alive: p.alive });
+                }
+            }
+        }
+
+        damagedPlayers.forEach(({ id, health, alive }) => {
+            io.emit('playerHealthUpdate', { id, health, alive });
+        });
     });
 
     // Player disconnect
