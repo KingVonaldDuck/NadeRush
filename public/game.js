@@ -40,6 +40,11 @@ let lastSentPlayerY = 0;
 let spectating = false;
 let spectateTarget = null;
 
+let mouseX = 0;
+let mouseY = 0;
+
+
+
 const grenadeImg = new Image();
 grenadeImg.src = 'grenade-grey.png';
 
@@ -126,10 +131,6 @@ function connectSocket() {
         }, 1000);
     });
 
-
-
-
-
     socket.on('respawn', (data) => {
         player.x = data.x;
         player.y = data.y;
@@ -177,6 +178,13 @@ function connectSocket() {
             remotePlayers[data.id].alive = data.alive; // <-- update alive here
         }
     });
+
+    socket.on("playerRotation", (data) => {
+        if (remotePlayers[data.id]) {
+            remotePlayers[data.id].rotation = data.rotation;
+        }
+    });
+
 
     socket.on("bombDropped", (bombData) => {
         console.log('Received bombDropped:', bombData);
@@ -230,9 +238,6 @@ function connectSocket() {
 // ---------------------
 
 
-
-
-
 function updateCamera(target) {
     if (!target) return;
     camera.x = target.x - canvas.width / 2;
@@ -240,7 +245,10 @@ function updateCamera(target) {
 }
 
 function updateBombsAndExplosions(dt) {
-    const bounceDamping = 0.7;
+    const bounceDamping = 1;
+    const bombRadius = 10;    // tweak if needed
+    const playerRadius = 20;  // tweak if needed
+    const bounceGracePeriod = 0.1; // seconds
 
     for (let i = bombs.length - 1; i >= 0; i--) {
         const bomb = bombs[i];
@@ -266,18 +274,44 @@ function updateBombsAndExplosions(dt) {
                 bomb.vy = -bomb.vy * bounceDamping;
             }
 
+            // --- NEW: Bounce off players with grace period ---
+            for (const id in remotePlayers) {
+                if (bomb.timeSinceThrow < bounceGracePeriod) continue;
+
+                const player = remotePlayers[id];
+                const dx = bomb.x - player.x;
+                const dy = bomb.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = bombRadius + playerRadius;
+
+                if (dist < minDist) {
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    const dot = bomb.vx * nx + bomb.vy * ny;
+                    bomb.vx = bomb.vx - 2 * dot * nx;
+                    bomb.vy = bomb.vy - 2 * dot * ny;
+
+                    bomb.vx *= bounceDamping;
+                    bomb.vy *= bounceDamping;
+
+                    const overlap = minDist - dist;
+                    bomb.x += nx * overlap;
+                    bomb.y += ny * overlap;
+                }
+            }
+            // --- END NEW ---
+
             bomb.vx *= 0.98;
             bomb.vy *= 0.98;
 
             bomb.rotationAngle += 0.1 * 60 * dt;
 
             if (bomb.timeSinceThrow >= bomb.explodeAfter) {
-                // Emit bomb exploded with last position
                 socket.emit('bombExploded', {
                     explosionX: bomb.x,
                     explosionY: bomb.y,
                     ownerId: player.id
-                    
                 });
                 console.log("boom");
 
@@ -299,10 +333,6 @@ function updateBombsAndExplosions(dt) {
 
     updateExplosions(dt);
 }
-
-
-
-
 
 function updateExplosions(dt) {
     for (let i = explosions.length - 1; i >= 0; i--) {
@@ -368,10 +398,20 @@ function update(dt) {
         lastSentPlayerY = player.y;
     }
 
+    // Emit mouse rotation movement to display where players point
+    // Calculate rotation toward mouse world coords
+    const mouseWorldX = mouseX + camera.x;
+    const mouseWorldY = mouseY + camera.y;
+    const dx = mouseWorldX - player.x;
+    const dy = mouseWorldY - player.y;
+    const rotation = Math.atan2(dy, dx);
+
+    // Always emit rotation
+    socket.emit("playerRotation", { rotation });
+
     // Update bombs and explosions
     updateBombsAndExplosions(dt);
 }
-
 
 // ---------------------
 // Drawing Functions
@@ -405,16 +445,74 @@ function clear() {
 }
 
 function drawPlayer(p) {
-    ctx.fillStyle = (p.id === player.id) ? "white" : p.color;
+    const camX = camera.x;
+    const camY = camera.y;
+
+    const px = p.x - camX;
+    const py = p.y - camY;
+
+    const size = p.size;
+
+    // Determine rotation:
+    // - If it's the local player, calculate live rotation toward mouse
+    // - Else, use .rotation as sent by the server
+    let rotation = p.rotation || 0;
+    if (p.id === player.id) {
+        const mouseWorldX = mouseX + camera.x;
+        const mouseWorldY = mouseY + camera.y;
+        const dx = mouseWorldX - p.x;
+        const dy = mouseWorldY - p.y;
+        rotation = Math.atan2(dy, dx);
+    } else {
+        rotation = p.rotation;
+    }
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(rotation);
+
+    
+
+    // Draw hands (front-left and front-right)
+    const handDistanceForward = size * 0.6;
+    const handSideOffset = size * 0.52;
+    const handRadius = size * 0.425;
+
+    const leftX = Math.cos(0) * handDistanceForward - Math.sin(0) * handSideOffset;
+    const leftY = Math.sin(0) * handDistanceForward + Math.cos(0) * handSideOffset;
+
+    const rightX = Math.cos(0) * handDistanceForward + Math.sin(0) * handSideOffset;
+    const rightY = Math.sin(0) * handDistanceForward - Math.cos(0) * handSideOffset;
+
+    ctx.fillStyle = '#cececeff';
     ctx.beginPath();
-    ctx.arc(p.x - camera.x, p.y - camera.y, p.size, 0, Math.PI * 2);
+    ctx.arc(leftX, leftY, handRadius, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.beginPath();
+    ctx.arc(rightX, rightY, handRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+
+    // Draw body (circle)
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(0, 0, size, 0, Math.PI * 2);
+    ctx.fill();
+
+
+
+    ctx.restore();
+
+    // Draw name above
     ctx.fillStyle = 'white';
     ctx.font = '16px Consolas';
     ctx.textAlign = 'center';
-    ctx.fillText(p.username || p.id.substring(0, 4), p.x - camera.x, p.y - camera.y - p.size - 15);
+    ctx.fillText(p.username || p.id.substring(0, 4), px, py - size - 20);
 }
+
+
+
 
 let pulseTime = 0;
 
@@ -550,6 +648,11 @@ function loop(timestamp = 0) {
 
     
 
+
+
+    drawBombs();
+    drawExplosions();
+    
     if (player.id && player.alive) {
         drawPlayer(player);
     }
@@ -559,9 +662,6 @@ function loop(timestamp = 0) {
             drawPlayer(remotePlayers[id]);
         }
     }
-
-    drawBombs();
-    drawExplosions();
 
     drawHealthBar(player.health);
 
@@ -637,6 +737,12 @@ document.getElementById("playBtn").addEventListener("click", () => {
     if (!isNaN(num) && num >= 1 && num <= hotbarItems.length) {
         selectedItemIndex = num - 1;
     }
+    });
+
+    window.addEventListener('mousemove', function(event) {
+        mouseX = event.clientX;
+        mouseY = event.clientY;
+
     });
 
 
