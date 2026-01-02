@@ -1,214 +1,67 @@
-// ====================
-// Server Setup & Imports
-// ====================
 const express = require('express');
-const http = require('http');
-const path = require('path');
 const app = express();
-const server = http.createServer(app);
-const { Server } = require('socket.io');
-const io = new Server(server);
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
 
-const PORT = process.env.PORT || 3000;
-const MAX_PLAYERS = 10;
+app.use(express.static('public')); // serve index.html and game.js
 
-// ====================
-// Game State
-// ====================
-const players = {};
+const world = { width: 1000, height: 1000 };
+const playerRadius = 20;
+const playerSpeed = 250; // pixels/sec
+const players = [null, null]; // 2 slots for 1v1
 
-// ====================
-// Middleware & Routes
-// ====================
-app.use(express.static(path.join(__dirname, 'public')));
+io.on('connection', socket => {
+    console.log('A user connected');
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ====================
-// Utility Functions
-// ====================
-function dist(x1, y1, x2, y2) {
-    return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-}
-
-function getRandomColor() {
-    const letters = '0123456789ABCDEF';
-    let color = '#';
-    for (let i = 0; i < 6; i++) {
-        color += letters[Math.floor(Math.random() * 16)];
-    }
-    return color;
-}
-
-// ====================
-// Constants for Gameplay
-// ====================
-const DAMAGE_RADIUS = 200;
-const DAMAGE_AMOUNT = 10;
-
-// ====================
-// Socket.IO Event Handling
-// ====================
-io.on('connection', (socket) => {
-    console.log(`Player connected (socket.id): ${socket.id}`);
-
-    // Server capacity check
-    if (Object.keys(players).length >= MAX_PLAYERS) {
-        socket.emit("serverFull", { message: "Server full. Try later." });
+    // Assign player slot
+    let index = players[0] ? 1 : 0;
+    if(players[index]) {
+        socket.emit('full'); // game full
         socket.disconnect();
         return;
     }
 
-    // Player registration
-    socket.on('registerPlayer', (data) => {
-        const username = (data.username || "Player").trim();
+    // Initialize player
+    players[index] = {
+        id: socket.id,
+        x: world.width/2,
+        y: world.height/2,
+        radius: playerRadius,
+        speed: playerSpeed,
+        angle: 0
+    };
 
-        players[socket.id] = {
-            id: socket.id,
-            username,
-            x: Math.random() * 2000 + 500,
-            y: Math.random() * 2000 + 500,
-            color: getRandomColor(),
-            health: 100,
-            alive: true
-        };
+    socket.emit('playerData', { index });
 
-        console.log(`Registered player: ${username} (${socket.id})`);
+    // Receive inputs
+    socket.on('inputs', inp => {
+        const p = players[index];
+        if(!p) return;
 
-        // Send current players to new player
-        const alivePlayers = {};
-        for (const id in players) {
-            alivePlayers[id] = players[id];
-        }
-        socket.emit('currentPlayers', alivePlayers);
+        // Update rotation
+        p.angle = inp.angle;
 
-        // Notify others about the new player
-        socket.broadcast.emit('newPlayer', players[socket.id]);
+        // Update movement
+        const dt = 1/60; // approximate frame time
+        if(inp.w && !inp.s) p.y -= p.speed * dt;
+        if(inp.s && !inp.w) p.y += p.speed * dt;
+        if(inp.a && !inp.d) p.x -= p.speed * dt;
+        if(inp.d && !inp.a) p.x += p.speed * dt;
+
+        // Clamp to world
+        p.x = Math.max(playerRadius, Math.min(world.width - playerRadius, p.x));
+        p.y = Math.max(playerRadius, Math.min(world.height - playerRadius, p.y));
     });
 
-    // Player movement updates
-    socket.on('playerMove', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
-            socket.broadcast.emit('playerMoved', {
-                id: socket.id,
-                x: data.x,
-                y: data.y,
-                alive: players[socket.id].alive
-            });
-        }
-    });
-
-
-    socket.on("playerRotation", ({ rotation }) => {
-        if (!players[socket.id]) return;
-        players[socket.id].rotation = rotation;
-        socket.broadcast.emit("playerRotation", { id: socket.id, rotation });
-    });
-
-
-
-    // Bomb dropped event — just broadcast to clients
-    socket.on('dropBomb', (data) => {
-        console.log('Bomb dropped by:', socket.id, data);
-
-        io.emit('bombDropped', {
-            startX: data.startX,
-            startY: data.startY,
-            targetX: data.targetX,
-            targetY: data.targetY,
-            ownerId: data.id,
-        });
-    });
-
-    // Bomb exploded event — clients send back last bomb position for damage calc
-    socket.on('bombExploded', (data) => {
-        const { explosionX, explosionY, ownerId } = data;
-        console.log(`Bomb exploded at (${explosionX}, ${explosionY}) by ${ownerId}`);
-
-        const damagedPlayers = [];
-
-        for (const id in players) {
-            const p = players[id];
-
-            if (!p.alive || p.health <= 0) {
-                
-
-                continue;
-
-            }
-
-            if (dist(p.x, p.y, explosionX, explosionY) <= DAMAGE_RADIUS) {
-                p.health = Math.max(0, p.health - DAMAGE_AMOUNT);
-
-                if (p.health === 0) {
-                    p.alive = false;
-
-                    // Send death info to victim
-                    io.to(p.id).emit('death', ownerId);
-
-                    // Broadcast death and health update
-                    io.emit('playerHealthUpdate', {
-                        id: p.id,
-                        health: 0,
-                        alive: false
-                    });
-
-
-
-
-                    // Respawn after 3 seconds
-                    setTimeout(() => {
-                        p.health = 100;
-                        p.alive = true;
-                        p.x = Math.random() * 2000 + 500;
-                        p.y = Math.random() * 2000 + 500;
-
-                        io.to(p.id).emit('respawn', {
-                            x: p.x,
-                            y: p.y,
-                            health: p.health,
-                            alive: true
-                        });
-
-                        io.emit('playerHealthUpdate', {
-                            id: p.id,
-                            health: p.health,
-                            alive: true
-                        });
-
-                        io.emit('playerMoved', {
-                            id: p.id,
-                            x: p.x,
-                            y: p.y,
-                            alive: true
-                        });
-                    }, 5000);
-                } else {
-                    damagedPlayers.push({ id: p.id, health: p.health, alive: p.alive });
-                }
-            }
-        }
-
-        damagedPlayers.forEach(({ id, health, alive }) => {
-            io.emit('playerHealthUpdate', { id, health, alive });
-        });
-    });
-
-    // Player disconnect
     socket.on('disconnect', () => {
-        console.log(`Player disconnected: ${socket.id}`);
-        delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
+        console.log('A user disconnected');
+        players[index] = null;
     });
 });
 
-// ====================
-// Server Start
-// ====================
-server.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+// Broadcast state 60 times/sec
+setInterval(() => {
+    io.emit('state', players);
+}, 1000/60);
+
+http.listen(3000, () => console.log('Server running on port 3000'));
