@@ -60,6 +60,7 @@ io.on('connection', socket => {
         p.x = Math.max(playerRadius, Math.min(world.width - playerRadius, p.x));
         p.y = Math.max(playerRadius, Math.min(world.height - playerRadius, p.y));
         p.emote = inp.emote;
+        p.weapon = inp.weapon;
     });
 
     socket.on('disconnect', () => {
