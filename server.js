@@ -1,102 +1,47 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
 const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const server = http.createServer(app);
+const io = new Server(server);
 
 app.use(express.static('public'));
 
-const world = { width: 1000, height: 1000 };
-const playerRadius = 20;
-const playerSpeed = 125;
+const players = {};
 
-const waitingQueue = [];
-const games = {}; // roomId -> { players: [] }
+io.on('connection', (socket) => {
+    console.log('player connected:', socket.id);
 
-io.on('connection', socket => {
+    players[socket.id] = { x: 1000, y: 1000, angle: 0 };
 
-    socket.on('join_game', () => {
-        if (waitingQueue.length > 0) {
-            const opponent = waitingQueue.pop();
-            const roomId = `room_${socket.id}_${opponent.id}`;
-
-            socket.join(roomId);
-            opponent.join(roomId);
-
-            games[roomId] = {
-                players: [
-                    createPlayer(opponent.id),
-                    createPlayer(socket.id)
-                ]
-            };
-
-            opponent.roomId = roomId;
-            socket.roomId = roomId;
-
-            opponent.emit('game_start', { roomId, index: 0 });
-            socket.emit('game_start', { roomId, index: 1 });
-
-        } else {
-            waitingQueue.push(socket);
-            socket.emit('waiting');
-        }
+    socket.on('ready', () => {
+        socket.emit('currentPlayers', players);
+        socket.broadcast.emit('playerJoined', { id: socket.id, ...players[socket.id] });
     });
 
-    socket.on('inputs', inp => {
-        const roomId = socket.roomId;
-        if (!roomId || !games[roomId]) return;
-
-        const game = games[roomId];
-        const p = game.players.find(pl => pl.id === socket.id);
+    socket.on('playerInput', (input) => {
+        const p = players[socket.id];
         if (!p) return;
 
-        p.angle = inp.angle;
+        const speed = 4;
+        if (input.left)  p.x -= speed;
+        if (input.right) p.x += speed;
+        if (input.up)    p.y -= speed;
+        if (input.down)  p.y += speed;
 
-        const dt = 1 / 60;
-        if (inp.w && !inp.s) p.y -= p.speed * dt;
-        if (inp.s && !inp.w) p.y += p.speed * dt;
-        if (inp.a && !inp.d) p.x -= p.speed * dt;
-        if (inp.d && !inp.a) p.x += p.speed * dt;
+        p.angle = input.angle;
 
-        p.x = Math.max(playerRadius, Math.min(world.width - playerRadius, p.x));
-        p.y = Math.max(playerRadius, Math.min(world.height - playerRadius, p.y));
-        p.emote = inp.emote;
-        p.weapon = inp.weapon;
+        socket.broadcast.emit('playerMoved', { id: socket.id, x: p.x, y: p.y, angle: p.angle });
     });
 
     socket.on('disconnect', () => {
-        const i = waitingQueue.indexOf(socket);
-        if (i !== -1) waitingQueue.splice(i, 1);
-
-        const roomId = socket.roomId;
-        if (!roomId || !games[roomId]) return;
-
-        // Notify opponent
-        socket.to(roomId).emit('opponent_left');
-
-        // Clean up game
-    delete games[roomId];
+        console.log('player disconnected:', socket.id);
+        delete players[socket.id];
+        io.emit('playerLeft', socket.id);
     });
-
-
-
 });
 
-// --- GAME LOOP ---
-setInterval(() => {
-    for (const roomId in games) {
-        io.to(roomId).emit('state', games[roomId].players);
-    }
-}, 1000 / 120);
-
-function createPlayer(id) {
-    return {
-        id,
-        x: world.width / 2,
-        y: world.height / 2,
-        radius: playerRadius,
-        speed: playerSpeed,
-        angle: 0
-    };
-}
-
-http.listen(3000, () => console.log('Server running on port 3000'));
+server.listen(3000, () => {
+    console.log('server running on http://localhost:3000');
+});
