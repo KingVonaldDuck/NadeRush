@@ -20,19 +20,19 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('playerJoined', { id: socket.id, ...players[socket.id] });
     });
 
-    socket.on('playerInput', (input) => {
+    socket.on('playerMove', (data) => {
         const p = players[socket.id];
         if (!p) return;
 
-        const speed = 4;
-        if (input.left)  p.x -= speed;
-        if (input.right) p.x += speed;
-        if (input.up)    p.y -= speed;
-        if (input.down)  p.y += speed;
-
-        p.angle = input.angle;
+        p.x = data.x;
+        p.y = data.y;
+        p.angle = data.angle;
 
         socket.broadcast.emit('playerMoved', { id: socket.id, x: p.x, y: p.y, angle: p.angle });
+    });
+
+    socket.on('bulletFired', (data) => {
+        socket.broadcast.emit('bulletFired', { ...data, id: socket.id });
     });
 
     socket.on('disconnect', () => {

@@ -2,11 +2,11 @@ class Player {
     constructor(scene, x, y) {
         this.scene = scene;
 
-        this.container = scene.add.container(x, y).setDepth(1);
+        this.container = scene.add.container(x, y);
 
         this.circle    = scene.add.circle(0, 0, 20, 0xffffff).setDepth(1);
-        this.handLeft  = scene.add.circle(0, 0, 10, 0xcccccc).setDepth(0);
-        this.handRight = scene.add.circle(0, 0, 10, 0xcccccc).setDepth(0);
+        this.handLeft  = scene.add.circle(0, 0, 10, 0xcccccc);
+        this.handRight = scene.add.circle(0, 0, 10, 0xcccccc);
 
         this.container.add([this.handLeft, this.handRight, this.circle]);
 
@@ -15,7 +15,7 @@ class Player {
         this.container.body.setCollideWorldBounds(true);
 
         this.health = 100;
-        this.speed = 3.5;
+        this.speed = 4;
     }
 
     update(keys, aimAngle) {
