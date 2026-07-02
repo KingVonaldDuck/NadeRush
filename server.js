@@ -9,19 +9,22 @@ const io     = new Server(server);
 app.use(express.static('public'));
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const WORLD_WIDTH    = 2000;
-const WORLD_HEIGHT   = 2000;
-const PLAYER_RADIUS  = 20;
-const BULLET_RADIUS  = 5;
-const BULLET_SPEED   = 600;
-const BULLET_DAMAGE  = 10;
-const HIT_DISTANCE   = PLAYER_RADIUS + BULLET_RADIUS;
-const TICK_RATE      = 30;
-const BULLET_RATE_MS = 150;  // min ms between shots per player
-const MAX_BULLETS    = 200;  // global safety cap
+const WORLD_WIDTH   = 2000;
+const WORLD_HEIGHT  = 2000;
+const PLAYER_RADIUS = 20;
+const BULLET_RADIUS = 5;
+const HIT_DISTANCE  = PLAYER_RADIUS + BULLET_RADIUS;
+const TICK_RATE     = 30;
+const MAX_BULLETS   = 200;
 
-// Single source of truth for map geometry. Clients receive this on join and
-// build their BlockManager from it, so layout is never duplicated or out of sync.
+// Weapon stats — single source of truth. Client sends the weapon key with
+// each shot; server looks up damage and rate limit from here.
+const WEAPONS = {
+    ar:      { damage: 15, rateMs: 1000,  bulletSpeed: 600  },
+    sniper:  { damage: 80, rateMs: 1500, bulletSpeed: 1400 },
+    shotgun: { damage: 40, rateMs: 700,  bulletSpeed: 500  },
+};
+
 const BLOCK_DEFS = [
     { x: 400,  y: 400,  w: 200, h: 40  },
     { x: 1200, y: 600,  w: 120, h: 200 },
@@ -50,8 +53,6 @@ function randomSpawn() {
 
 function isValidNum(v) { return typeof v === 'number' && isFinite(v); }
 
-// Liang-Barsky segment vs AABB, with the AABB expanded by BULLET_RADIUS.
-// Returns true if the bullet path oldPos→newPos intersects the block.
 function bulletPathHitsBlock(oldX, oldY, newX, newY, block) {
     const r      = BULLET_RADIUS;
     const left   = block.x - r,        right  = block.x + block.w + r;
@@ -90,10 +91,13 @@ io.on('connection', (socket) => {
     console.log('player connected:', socket.id);
 
     const spawn = randomSpawn();
-    players[socket.id] = { x: spawn.x, y: spawn.y, angle: 0, health: 100, lastBulletTime: 0 };
+    players[socket.id] = {
+        x: spawn.x, y: spawn.y, angle: 0, health: 100,
+        // Track last shot time per weapon so switching weapons resets the cooldown
+        lastBulletTimes: { ar: 0, sniper: 0, shotgun: 0 },
+    };
 
     socket.on('ready', () => {
-        // Send map config first so the client can build the world before spawning players
         socket.emit('gameConfig', GAME_CONFIG);
         socket.emit('currentPlayers', players);
         socket.broadcast.emit('playerJoined', { id: socket.id, ...players[socket.id] });
@@ -104,7 +108,6 @@ io.on('connection', (socket) => {
         if (!p || p.health <= 0) return;
         if (!data || !isValidNum(data.x) || !isValidNum(data.y) || !isValidNum(data.angle)) return;
 
-        // Clamp to world bounds so a cheating client can't escape the arena
         p.x     = Math.max(0, Math.min(WORLD_WIDTH,  data.x));
         p.y     = Math.max(0, Math.min(WORLD_HEIGHT, data.y));
         p.angle = data.angle;
@@ -118,28 +121,34 @@ io.on('connection', (socket) => {
         if (!data?.id || bullets[data.id]) return;
         if (!isValidNum(data.angle)) return;
 
-        const now = Date.now();
-        if (now - p.lastBulletTime < BULLET_RATE_MS) return;    // rate limit
-        if (Object.keys(bullets).length >= MAX_BULLETS) return;  // global cap
+        const weapon = WEAPONS[data.weapon];
+        if (!weapon) return;  // reject unknown weapon keys
 
-        p.lastBulletTime = now;
+        const now = Date.now();
+        if (now - p.lastBulletTimes[data.weapon] < weapon.rateMs) return;
+        if (Object.keys(bullets).length >= MAX_BULLETS) return;
+
+        p.lastBulletTimes[data.weapon] = now;
 
         bullets[data.id] = {
             x: p.x, y: p.y,
-            vx: Math.cos(data.angle) * BULLET_SPEED,
-            vy: Math.sin(data.angle) * BULLET_SPEED,
+            vx: Math.cos(data.angle) * weapon.bulletSpeed,
+            vy: Math.sin(data.angle) * weapon.bulletSpeed,
             ownerId: socket.id,
+            damage:  weapon.damage,
+            weapon:  data.weapon,
         };
 
         socket.broadcast.emit('bulletFired', {
-            id: data.id, x: p.x, y: p.y, angle: data.angle, ownerId: socket.id,
+            id: data.id, x: p.x, y: p.y, angle: data.angle,
+            ownerId: socket.id, weapon: data.weapon,
         });
     });
 
     socket.on('disconnect', () => {
         console.log('player disconnected:', socket.id);
         delete players[socket.id];
-        removeBulletsOwnedBy(socket.id);  // don't leave orphaned bullets in flight
+        removeBulletsOwnedBy(socket.id);
         io.emit('playerLeft', socket.id);
     });
 });
@@ -157,14 +166,11 @@ setInterval(() => {
         bullet.x += bullet.vx * dt;
         bullet.y += bullet.vy * dt;
 
-        // Out of bounds
         if (bullet.x < 0 || bullet.x > WORLD_WIDTH || bullet.y < 0 || bullet.y > WORLD_HEIGHT) {
             removeBullet(bulletId);
             continue;
         }
 
-        // Server-authoritative block collision — bullet stops at walls on the server,
-        // not just visually on the client
         let blocked = false;
         for (const block of BLOCK_DEFS) {
             if (bulletPathHitsBlock(oldX, oldY, bullet.x, bullet.y, block)) {
@@ -175,28 +181,24 @@ setInterval(() => {
         }
         if (blocked) continue;
 
-        // Player hit detection
         let hit = false;
         for (const [playerId, player] of Object.entries(players)) {
             if (playerId === bullet.ownerId || player.health <= 0) continue;
 
-            const dx   = player.x - bullet.x;
-            const dy   = player.y - bullet.y;
+            const dx = player.x - bullet.x;
+            const dy = player.y - bullet.y;
             if (Math.sqrt(dx * dx + dy * dy) > HIT_DISTANCE) continue;
 
-            player.health = Math.max(0, player.health - BULLET_DAMAGE);
+            player.health = Math.max(0, player.health - bullet.damage);
             removeBullet(bulletId);
             io.emit('playerHit', { id: playerId, health: player.health, by: bullet.ownerId });
 
             if (player.health <= 0) {
-                // Clean up any remaining bullets the dying player had in flight
                 removeBulletsOwnedBy(playerId);
-
                 const respawn = randomSpawn();
                 player.x      = respawn.x;
                 player.y      = respawn.y;
                 player.health = 100;
-
                 io.emit('playerDied',      { id: playerId, by: bullet.ownerId });
                 io.emit('playerRespawned', { id: playerId, x: player.x, y: player.y, health: player.health });
             }
