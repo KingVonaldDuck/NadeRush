@@ -1,23 +1,29 @@
 class Grid {
     constructor(scene) {
-        this.scene = scene;
+        this.scene    = scene;
         this.graphics = scene.add.graphics().setDepth(-10);
+        this._lastScrollX = null;
+        this._lastScrollY = null;
     }
 
     draw() {
+        const cam = this.scene.cameras.main;
+
+        // Only redraw when the camera has actually moved
+        if (cam.scrollX === this._lastScrollX && cam.scrollY === this._lastScrollY) return;
+        this._lastScrollX = cam.scrollX;
+        this._lastScrollY = cam.scrollY;
+
         this.graphics.clear();
         this.graphics.lineStyle(1, 0x444444, 1);
 
         const spacing = 40;
-        const cam     = this.scene.cameras.main;
-
-        const left   = cam.scrollX - spacing;
-        const top    = cam.scrollY - spacing;
-        const right  = cam.scrollX + cam.width  + spacing;
-        const bottom = cam.scrollY + cam.height + spacing;
-
-        const startX = Math.floor(left / spacing) * spacing;
-        const startY = Math.floor(top  / spacing) * spacing;
+        const left    = cam.scrollX - spacing;
+        const top     = cam.scrollY - spacing;
+        const right   = cam.scrollX + cam.width  + spacing;
+        const bottom  = cam.scrollY + cam.height + spacing;
+        const startX  = Math.floor(left / spacing) * spacing;
+        const startY  = Math.floor(top  / spacing) * spacing;
 
         for (let x = startX; x <= right; x += spacing) {
             this.graphics.beginPath();

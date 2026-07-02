@@ -4,7 +4,7 @@ class InputHandler {
         this.socket = socket;
 
         scene.input.on('pointerdown', (pointer) => {
-            if (!scene.player) return;
+            if (!scene.player || scene.player.health <= 0) return;
 
             const cam    = scene.cameras.main;
             const worldX = pointer.x + cam.scrollX;
@@ -15,11 +15,16 @@ class InputHandler {
                 worldX, worldY
             );
 
-            new Bullet(scene, scene.player.x, scene.player.y, angle, socket.id);
+            const bulletId = `${socket.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+            // Spawn locally right away for instant feedback; the server
+            // owns this bullet's actual simulation and hit detection from
+            // here and will tell every client (including us) when it dies.
+            const bullet = new Bullet(scene, scene.player.x, scene.player.y, angle, socket.id, bulletId);
+            scene.bullets[bulletId] = bullet;
 
             socket.emit('bulletFired', {
-                x: scene.player.x,
-                y: scene.player.y,
+                id: bulletId,
                 angle: angle
             });
         });

@@ -4,9 +4,10 @@ class PlayerManager {
         this.players = {};
     }
 
-    spawn(id, x, y) {
+    spawn(id, x, y, health = 100) {
         const player = new Player(this.scene, x, y);
         player.circle.setFillStyle(0xff6666);
+        player.setHealth(health);
         this.players[id] = player;
     }
 
@@ -23,6 +24,18 @@ class PlayerManager {
         player.container.x = x;
         player.container.y = y;
         player.updateHands(angle);
+    }
+
+    setHealth(id, health) {
+        const player = this.players[id];
+        if (!player) return;
+        player.setHealth(health);
+    }
+
+    respawn(id, x, y, health) {
+        const player = this.players[id];
+        if (!player) return;
+        player.respawn(x, y, health);
     }
 
     removeAll() {

@@ -2,48 +2,76 @@ const socket = io();
 
 class MainScene extends Phaser.Scene {
     constructor() {
-        super("MainScene");
+        super('MainScene');
     }
 
     create() {
-        this.worldWidth  = 2000;
-        this.worldHeight = 2000;
+        this.worldWidth   = 2000;
+        this.worldHeight  = 2000;
+        this.player       = null;
+        this.bullets      = {};
+        this.lastMoveSent = 0;
 
-        this.keys = this.input.keyboard.addKeys({ w:"W", a:"A", s:"S", d:"D" });
+        this.keys = this.input.keyboard.addKeys({ w:'W', a:'A', s:'S', d:'D' });
 
         this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
         this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
 
         this.grid          = new Grid(this);
-        this.blockManager  = new BlockManager(this);
         this.playerManager = new PlayerManager(this);
-        this.inputHandler  = new InputHandler(this, socket);
         this.bulletGroup   = this.physics.add.group();
+        this.inputHandler  = new InputHandler(this, socket);
 
-        // bullet vs block
-        this.physics.add.collider(this.bulletGroup, this.blockManager.group, (bulletSprite) => {
-            bulletSprite.destroy();
-        });
+        this._setupSocketListeners();
+        socket.emit('ready');
+    }
 
-        // socket events
-        socket.on('bulletFired', (data) => {
-            new Bullet(this, data.x, data.y, data.angle, data.id);
+    _setupSocketListeners() {
+        // Remove old listeners before registering so scene restarts don't stack duplicates
+        const events = [
+            'gameConfig', 'currentPlayers', 'playerJoined', 'playerMoved',
+            'playerLeft', 'bulletFired', 'bulletRemoved', 'playerHit',
+            'playerDied', 'playerRespawned',
+        ];
+        events.forEach(e => socket.off(e));
+
+        // Server sends gameConfig before currentPlayers so the map exists
+        // before we try to spawn players into it
+        socket.on('gameConfig', (config) => {
+            this.worldWidth  = config.worldWidth;
+            this.worldHeight = config.worldHeight;
+
+            this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
+            this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
+
+            this.blockManager = new BlockManager(this, config.blockDefs);
+
+            this.physics.add.collider(this.bulletGroup, this.blockManager.group, (bulletSprite) => {
+                const id = bulletSprite.bulletId;
+                if (id && this.bullets[id]) {
+                    this.bullets[id].destroy();
+                    delete this.bullets[id];
+                }
+            });
         });
 
         socket.on('currentPlayers', (players) => {
             Object.entries(players).forEach(([id, data]) => {
                 if (id === socket.id) {
                     this.player = new Player(this, data.x, data.y);
+                    this.player.setHealth(data.health);
                     this.cameras.main.startFollow(this.player.container, true, 0.1, 0.1);
-                    this.physics.add.collider(this.player.container, this.blockManager.group);
+                    if (this.blockManager) {
+                        this.physics.add.collider(this.player.container, this.blockManager.group);
+                    }
                 } else {
-                    this.playerManager.spawn(id, data.x, data.y);
+                    this.playerManager.spawn(id, data.x, data.y, data.health);
                 }
             });
         });
 
         socket.on('playerJoined', (data) => {
-            this.playerManager.spawn(data.id, data.x, data.y);
+            this.playerManager.spawn(data.id, data.x, data.y, data.health);
         });
 
         socket.on('playerMoved', (data) => {
@@ -54,39 +82,68 @@ class MainScene extends Phaser.Scene {
             this.playerManager.remove(id);
         });
 
-        socket.emit('ready');
+        socket.on('bulletFired', (data) => {
+            const bullet = new Bullet(this, data.x, data.y, data.angle, data.ownerId, data.id);
+            this.bullets[data.id] = bullet;
+        });
+
+        socket.on('bulletRemoved', (data) => {
+            const bullet = this.bullets[data.id];
+            if (bullet) {
+                bullet.destroy();
+                delete this.bullets[data.id];
+            }
+        });
+
+        socket.on('playerHit', (data) => {
+            if (data.id === socket.id) {
+                this.player?.setHealth(data.health);
+            } else {
+                this.playerManager.setHealth(data.id, data.health);
+            }
+        });
+
+        socket.on('playerDied', (_data) => {
+            // Hook for death notifications, kill feed, etc.
+        });
+
+        socket.on('playerRespawned', (data) => {
+            if (data.id === socket.id) {
+                this.player?.respawn(data.x, data.y, data.health);
+            } else {
+                this.playerManager.respawn(data.id, data.x, data.y, data.health);
+            }
+        });
     }
 
     update() {
         if (!this.player) return;
 
-        const cam     = this.cameras.main;
-        const pointer = this.input.activePointer;
-
-        const worldX = pointer.x + cam.scrollX;
-        const worldY = pointer.y + cam.scrollY;
-
-        const aimAngle = Phaser.Math.Angle.Between(
-            this.player.x, this.player.y,
-            worldX, worldY
-        );
+        const cam      = this.cameras.main;
+        const pointer  = this.input.activePointer;
+        const worldX   = pointer.x + cam.scrollX;
+        const worldY   = pointer.y + cam.scrollY;
+        const aimAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, worldX, worldY);
 
         this.player.update(this.keys, aimAngle);
 
-        socket.emit('playerMove', {
-            x: this.player.x,
-            y: this.player.y,
-            angle: aimAngle
-        });
+        // Rate-limit position updates to match server tick rate (30/sec)
+        // instead of blasting at 60fps
+        const now = Date.now();
+        if (now - this.lastMoveSent >= 1000 / 30) {
+            socket.emit('playerMove', { x: this.player.x, y: this.player.y, angle: aimAngle });
+            this.lastMoveSent = now;
+        }
 
-        this.bulletGroup.getChildren().forEach(sprite => {
-            if (
-                sprite.x < 0 || sprite.x > this.worldWidth ||
-                sprite.y < 0 || sprite.y > this.worldHeight
-            ) {
-                sprite.destroy();
+        // Client-side bullet cleanup for instant visual feedback;
+        // the server mirrors this authoritatively and sends bulletRemoved too
+        for (const [id, bullet] of Object.entries(this.bullets)) {
+            const s = bullet.sprite;
+            if (!s.active || s.x < 0 || s.x > this.worldWidth || s.y < 0 || s.y > this.worldHeight) {
+                bullet.destroy();
+                delete this.bullets[id];
             }
-        });
+        }
 
         this.grid.draw();
     }
@@ -94,7 +151,7 @@ class MainScene extends Phaser.Scene {
 
 const config = {
     type: Phaser.AUTO,
-    backgroundColor: "#222",
+    backgroundColor: '#222',
     scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -102,10 +159,10 @@ const config = {
         height: window.innerHeight,
     },
     physics: {
-        default: "arcade",
-        arcade: { debug: false }
+        default: 'arcade',
+        arcade: { debug: false },
     },
-    scene: MainScene
+    scene: MainScene,
 };
 
-const game = new Phaser.Game(config);
+new Phaser.Game(config);
