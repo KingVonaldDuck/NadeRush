@@ -3,14 +3,18 @@ class InputHandler {
         this.scene         = scene;
         this.socket        = socket;
         this.weaponManager = weaponManager;
-        this.lastShotTimes = { ar: 0, sniper: 0, shotgun: 0 };
+        this.lastShotTimes = {};  // keyed by weapon.key, populated on first shot
 
-        scene.input.keyboard.on('keydown', (e) => {
-            if (e.key >= '1' && e.key <= '4') {
-                weaponManager.switch(parseInt(e.key));
-                scene.updateWeaponUI();
-            }
-        });
+    scene.input.keyboard.on('keydown', (e) => {
+        const num = parseInt(e.key);
+        if (num >= 1 && num <= Object.keys(weaponManager.weapons).length) {
+            weaponManager.switch(num);
+            scene.hotbar.refresh();
+
+            const baseZoom = Math.max(1, scene.scale.width / 1920);
+            scene.cameras.main.setZoom(baseZoom * weaponManager.get().zoom);
+        }
+    });
 
         scene.input.on('pointerdown', (pointer) => {
             if (!scene.player || scene.player.health <= 0) return;
@@ -28,16 +32,17 @@ class InputHandler {
     _fire(pointer) {
         const weapon = this.weaponManager.get();
         if (weapon.key === 'melee') return;
+        if (!weapon.canFire(this.lastShotTimes[weapon.key])) return;
 
-        const now = Date.now();
-        if (now - (this.lastShotTimes[weapon.key] || 0) < weapon.rateMs) return;
-        this.lastShotTimes[weapon.key] = now;
+        this.lastShotTimes[weapon.key] = Date.now();
 
         const scene  = this.scene;
         const cam    = scene.cameras.main;
-        const worldX = pointer.x + cam.scrollX;
-        const worldY = pointer.y + cam.scrollY;
-        const angle  = Phaser.Math.Angle.Between(scene.player.x, scene.player.y, worldX, worldY);
+        const angle  = Phaser.Math.Angle.Between(
+            scene.player.x, scene.player.y,
+            pointer.x + cam.scrollX,
+            pointer.y + cam.scrollY
+        );
 
         const bulletId = `${this.socket.id}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
         const bullet   = new Bullet(scene, scene.player.x, scene.player.y, angle, this.socket.id, bulletId, weapon.color, weapon.bulletSpeed);

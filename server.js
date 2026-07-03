@@ -17,10 +17,8 @@ const HIT_DISTANCE  = PLAYER_RADIUS + BULLET_RADIUS;
 const TICK_RATE     = 30;
 const MAX_BULLETS   = 200;
 
-// Weapon stats — single source of truth. Client sends the weapon key with
-// each shot; server looks up damage and rate limit from here.
 const WEAPONS = {
-    ar:      { damage: 15, rateMs: 1000,  bulletSpeed: 600  },
+    ar:      { damage: 15, rateMs: 150,  bulletSpeed: 600  },
     sniper:  { damage: 80, rateMs: 1500, bulletSpeed: 1400 },
     shotgun: { damage: 40, rateMs: 700,  bulletSpeed: 500  },
 };
@@ -53,6 +51,7 @@ function randomSpawn() {
 
 function isValidNum(v) { return typeof v === 'number' && isFinite(v); }
 
+// Liang-Barsky segment vs AABB — checks if the bullet path crosses a block
 function bulletPathHitsBlock(oldX, oldY, newX, newY, block) {
     const r      = BULLET_RADIUS;
     const left   = block.x - r,        right  = block.x + block.w + r;
@@ -75,6 +74,16 @@ function bulletPathHitsBlock(oldX, oldY, newX, newY, block) {
     return true;
 }
 
+// Minimum distance from point P to segment AB — catches fast bullets that
+// pass through a player in a single tick (tunneling)
+function minDistToSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
 function removeBullet(id) {
     delete bullets[id];
     io.emit('bulletRemoved', { id });
@@ -93,8 +102,7 @@ io.on('connection', (socket) => {
     const spawn = randomSpawn();
     players[socket.id] = {
         x: spawn.x, y: spawn.y, angle: 0, health: 100,
-        // Track last shot time per weapon so switching weapons resets the cooldown
-        lastBulletTimes: { ar: 0, sniper: 0, shotgun: 0 },
+        lastBulletTimes: {},  // populated per weapon key on first shot
     };
 
     socket.on('ready', () => {
@@ -122,10 +130,11 @@ io.on('connection', (socket) => {
         if (!isValidNum(data.angle)) return;
 
         const weapon = WEAPONS[data.weapon];
-        if (!weapon) return;  // reject unknown weapon keys
+        if (!weapon) return;
 
-        const now = Date.now();
-        if (now - p.lastBulletTimes[data.weapon] < weapon.rateMs) return;
+        const now      = Date.now();
+        const lastShot = p.lastBulletTimes[data.weapon] || 0;
+        if (now - lastShot < weapon.rateMs) return;
         if (Object.keys(bullets).length >= MAX_BULLETS) return;
 
         p.lastBulletTimes[data.weapon] = now;
@@ -140,8 +149,8 @@ io.on('connection', (socket) => {
         };
 
         socket.broadcast.emit('bulletFired', {
-            id: data.id, x: p.x, y: p.y, angle: data.angle,
-            ownerId: socket.id, weapon: data.weapon,
+            id: data.id, x: p.x, y: p.y,
+            angle: data.angle, ownerId: socket.id, weapon: data.weapon,
         });
     });
 
@@ -166,11 +175,13 @@ setInterval(() => {
         bullet.x += bullet.vx * dt;
         bullet.y += bullet.vy * dt;
 
+        // Out of bounds
         if (bullet.x < 0 || bullet.x > WORLD_WIDTH || bullet.y < 0 || bullet.y > WORLD_HEIGHT) {
             removeBullet(bulletId);
             continue;
         }
 
+        // Block collision
         let blocked = false;
         for (const block of BLOCK_DEFS) {
             if (bulletPathHitsBlock(oldX, oldY, bullet.x, bullet.y, block)) {
@@ -181,13 +192,12 @@ setInterval(() => {
         }
         if (blocked) continue;
 
+        // Player hit — use swept check so fast bullets don't tunnel through players
         let hit = false;
         for (const [playerId, player] of Object.entries(players)) {
             if (playerId === bullet.ownerId || player.health <= 0) continue;
 
-            const dx = player.x - bullet.x;
-            const dy = player.y - bullet.y;
-            if (Math.sqrt(dx * dx + dy * dy) > HIT_DISTANCE) continue;
+            if (minDistToSegment(player.x, player.y, oldX, oldY, bullet.x, bullet.y) > HIT_DISTANCE) continue;
 
             player.health = Math.max(0, player.health - bullet.damage);
             removeBullet(bulletId);
