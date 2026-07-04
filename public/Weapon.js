@@ -28,7 +28,7 @@ class AssaultRifle extends Weapon {
 
 class AWP extends Weapon {
     constructor() {
-        super({ name: 'AWP', key: 'sniper', auto: false, color: 0x00ffff, rateMs: 1500, bulletSpeed: 2500, zoom: 0.9 });
+        super({ name: 'AWP', key: 'sniper', auto: false, color: 0x00ffff, rateMs: 1500, bulletSpeed: 2500, zoom: 1 });
     }
 }
 
